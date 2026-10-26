@@ -1,0 +1,942 @@
+# RuoYi Backend CLI 使用文档
+
+## 1. 文档说明
+
+本文档用于说明 `ruoyi-fastapi-backend` 当前已经落地的 CLI 用法。
+
+统一命令入口为：
+
+```bash
+ruoyi <group> <command> [options]
+```
+
+当前已实现的命令组包括：
+
+- `app`
+- `db`
+- `ops`
+- `cache`
+- `job`
+- `config`
+- `crypto`
+- `gen`
+- `plugin`
+- `dev`
+- `completion`
+- `wizard`
+- `tui`
+
+## 2. 快速开始
+
+### 2.1 执行目录
+
+`ruoyi` 命令必须在后端项目根目录执行，也就是 `ruoyi-fastapi-backend` 目录。
+
+```bash
+cd ruoyi-fastapi-backend
+ruoyi --help
+```
+
+### 2.2 安装依赖
+
+使用 Python 3.10–3.14，先进入后端目录，再创建并激活虚拟环境。以下以标准库 `venv` 为例；已有环境也可直接使用，不要求特定环境名称或安装路径。
+
+Windows PowerShell：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+macOS / Linux（Bash、Zsh）：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+创建环境时使用已安装的受支持 Python 解释器。激活后，下文统一使用 `python` 和 `python -m pip`，确保安装依赖与执行命令使用同一个环境。每次打开新终端，都应先激活该环境。
+
+以下安装及 `ruoyi` 命令适用于 Windows PowerShell、macOS 和 Linux；只有涉及 Shell 语法的命令才分平台列出。
+
+MySQL 版本（在后端目录执行）：
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+PostgreSQL 版本：
+
+```bash
+python -m pip install -r requirements-pg.txt
+```
+
+说明：
+
+- `requirements*.txt` 已包含当前项目自身安装项 `.`，因此不需要额外执行 `python -m pip install -e .`
+- 安装完成后，`ruoyi` 会随当前 Python 环境一起可用
+
+安装完成后检查 CLI：
+
+```bash
+ruoyi --help
+```
+
+`textual` 已包含在现有依赖文件中，因此安装 `requirements.txt` 或 `requirements-pg.txt` 后即可直接使用 TUI。
+
+### 2.3 第一个命令
+
+开发环境启动应用：
+
+```bash
+ruoyi app run --env=dev
+```
+
+这个命令的目标是等价替代：
+
+```bash
+python app.py --env=dev
+```
+
+## 3. 使用规则
+
+### 3.1 根参数位置
+
+根参数必须写在命令组前面。
+
+正确示例：
+
+```bash
+ruoyi --color=never --icon=none ops health --env=dev
+```
+
+推荐不要写成把根参数放到子命令后面的形式。
+
+### 3.2 环境参数
+
+CLI 不单独维护配置系统，仍然复用项目原有的 `config/env.py` 解析逻辑。
+
+常用环境映射如下：
+
+- `--env=dev` -> `.env.dev`
+- `--env=prod` -> `.env.prod`
+- `--env=dockermy` -> `.env.dockermy`
+- `--env=dockerpg` -> `.env.dockerpg`
+
+### 3.3 帮助命令
+
+可以通过以下方式逐层查看帮助：
+
+```bash
+ruoyi --help
+ruoyi app --help
+ruoyi app run --help
+ruoyi db --help
+ruoyi cache clear --help
+```
+
+### 3.4 输出模式
+
+除 `app run` 这类进程接管型命令外，大多数命令支持：
+
+- `--output=text`
+- `--output=json`
+
+推荐约定：
+
+- 人工排查优先使用 `text`
+- 脚本集成优先使用 `json`
+- `text` 输出中的字段名统一使用 `snake_case`
+- `json` 输出中的字段名保持稳定结构化契约，不为显示效果重命名
+- `json` 输出不会混入颜色码、emoji 或装饰文本
+- `json` 输出不会混入 SQLAlchemy SQL 日志、普通业务日志或其他非 JSON 文本
+- `app run` 会直接接管应用前台进程，因此不提供 `--output`
+
+示例：
+
+```bash
+ruoyi ops health --env=dev --output=text
+ruoyi ops health --env=dev --output=json
+```
+
+### 3.5 视觉选项
+
+根命令支持：
+
+- `--color=auto|always|never`
+- `--icon=emoji|ascii|none`
+
+当前默认值为：
+
+- `--color=always`
+- `--icon=emoji`
+
+说明：
+
+- 这两个参数只影响 `text` 输出
+- `json` 输出始终保持结构化结果，不受颜色和图标影响
+
+示例：
+
+```bash
+ruoyi --color=always ops server-info --env=dev
+ruoyi --color=never ops server-info --env=dev
+ruoyi --icon=none ops server-info --env=dev
+```
+
+### 3.6 危险命令
+
+会产生真实副作用的命令会纳入危险命令保护。
+
+危险命令分为两类：
+
+- `high`：必须支持 `--dry-run` 或等价预览能力
+- `normal`：默认要求确认，但不强制要求 `--dry-run`
+
+保护规则如下：
+
+- 非 `prod` 环境下默认会要求确认
+- 非交互终端中如果未传 `--yes`，命令会直接拒绝执行
+- `prod` 环境下默认禁止执行，必须显式传入 `--allow-prod --yes`
+- 只有 `high` 风险命令或已实现预演能力的命令才会出现 `--dry-run`
+
+示例：
+
+```bash
+ruoyi cache clear --env=dev --all --yes
+ruoyi db upgrade --env=prod --revision=head --allow-prod --yes
+ruoyi gen export sys_user --env=dev --mode=local --dry-run
+```
+
+## 4. 常用工作流
+
+### 4.1 本地开发启动
+
+```bash
+cd ruoyi-fastapi-backend
+ruoyi app doctor --env=dev
+ruoyi app run --env=dev
+```
+
+### 4.2 发布前检查
+
+```bash
+ruoyi ops health --env=prod --output=json
+ruoyi ops server-info --env=prod
+ruoyi db current --env=prod --output=json
+```
+
+### 4.3 数据库迁移
+
+```bash
+ruoyi db check --env=dev
+ruoyi db revision --env=dev --message="add user index" --yes
+ruoyi db upgrade --env=dev --revision=head --yes
+```
+
+### 4.4 缓存与调度排查
+
+```bash
+ruoyi cache stats --env=dev
+ruoyi cache keys sys_config --env=dev --output=json
+ruoyi job list --env=dev --output=json
+ruoyi job sync --env=dev --yes
+```
+
+### 4.5 开发态检查
+
+```bash
+ruoyi dev lint cli --check-only
+ruoyi dev test tests --keyword sanitize --maxfail=1 -q
+```
+
+### 4.6 插件开发
+
+插件开发命令集中在 `plugin` 命令组，完整开发手册见 `docs/plugin_development.md`。
+
+```bash
+ruoyi plugin create demo --env=dev --template=full-stack --dry-run
+ruoyi plugin create demo --env=dev --template=crud-page --frontend-framework=vue2 --dry-run
+ruoyi plugin check demo --env=dev
+ruoyi plugin check-deps demo --env=dev
+ruoyi plugin allowlist-example --env=dev --dry-run
+ruoyi plugin allowlist-example --env=dev --output-path config/plugin_dependency_allowlist.yaml --overwrite
+ruoyi plugin lock-deps demo --env=dev --dry-run
+ruoyi plugin lock-deps demo --env=dev --offline-dir artifacts/plugin-dependencies --overwrite
+ruoyi plugin install-deps demo --env=dev --dry-run
+ruoyi plugin install-deps demo --env=dev --yes
+ruoyi plugin install demo --env=dev --yes
+ruoyi plugin test demo --env=dev
+```
+
+`allowlist-example` 会按需生成插件依赖允许列表示例，默认输出路径为 `config/plugin_dependency_allowlist.yaml`。仓库不再默认携带 `.example` 文件；需要模板时可先 `--dry-run` 查看，也可指定 `--output-path` 写入并按团队实际批准范围调整。
+
+`plugin create` 的 `--frontend-framework` 当前固定可选 `auto`、`vue2`、`vue3`、`react`，默认值为 `auto`。显式选择 `vue2`、`vue3` 或 `react` 优先确定框架；`auto` 先采用标准目录 `ruoyi-fastapi-frontend/<framework>/{web,mobile}` 中的框架标识，独立工程再通过 `package.json` 依赖识别框架。标准目录标识不会被底层依赖覆盖；无法识别的独立工程会报错。未指定目标时，目录选择默认定位 `vue3/web`。显式传入 `--frontend-framework=vue2` 会选择 `vue2/web` 并生成 Vue2 模板，传入 `vue3` 则选择 Vue3 工程，传入 `react` 选择 React Web 并生成 `.jsx` 页面，脚手架结果使用 `frontendFramework` 记录框架标识。
+
+当前 v1 源码前端模板提供 Vue2、Vue3 和 React 实现（React Hooks、Ant Design、ESM 测试），`auto` 解析到其他框架时，生成源码页面会明确报错，提示模板尚未支持。v2 独立模板的 `--frontend-framework` 只允许默认值 `auto`。CLI 选项的固定取值不改变底层通用框架结构。
+
+插件依赖检查、安装和测试使用当前选定的 Web 宿主。可通过 `RUOYI_PLUGIN_FRONTEND_FRAMEWORK=vue2` 切换默认框架；未设置该变量时也可使用 `RUOYI_FRONTEND_FRAMEWORK`。`RUOYI_PLUGIN_FRONTEND_ROOT`/`RUOYI_FRONTEND_ROOT` 可直接指定 Web 工程，或指定前端聚合目录后按框架定位，旧版平铺目录仍受支持。此前按版本命名的选择变量和命令选项不再提供别名，已有脚本需同步更新。
+
+各框架工程共用同一个后端插件清单。前端依赖分别完整声明到 `dependencies.frontend.<framework>` 的 `npm/npmDev` 中，分类键接受 `vue2`、`vue3`、`react` 等安全的小写框架标识；检查和安装只选择当前宿主的分类，不跨分类合并。未声明目标分类时，该宿主没有 npm 依赖；旧顶层 `dependencies.npm/npmDev` 会被清单校验拒绝，需迁移到对应分类。各工程分别安装前端依赖，后端插件只需安装、启用一次。依赖分类可扩展不代表对应框架的工程或源码模板已实现。
+
+```powershell
+# Windows PowerShell：检查 Vue2 Web 的 AI 插件依赖
+$env:RUOYI_PLUGIN_FRONTEND_FRAMEWORK = 'vue2'
+ruoyi plugin check-deps ai --env=dev
+ruoyi plugin install-deps ai --env=dev --dry-run
+```
+
+```bash
+# macOS / Linux
+RUOYI_PLUGIN_FRONTEND_FRAMEWORK=vue2 ruoyi plugin check-deps ai --env=dev
+RUOYI_PLUGIN_FRONTEND_FRAMEWORK=vue2 ruoyi plugin install-deps ai --env=dev --dry-run
+```
+
+`lock-deps` 会根据 `plugin.yaml` 的 Python 依赖和当前框架分类的前端依赖生成 `plugin.lock.yaml` 模板。锁文件产物保持顶层 `python/npm/npmDev` 列表，与插件清单的分类结构不同。默认模式不联网解析版本，也不生成 hash/integrity；如传入 `--offline-dir`，命令会从已有本地 wheel/tgz 反填 `resolvedVersion`、Python `hashes` 和 npm/npmDev `integrity`。该命令仍不会下载、安装或访问 registry，无法反填的项需要由人工审核或 CI 发布流水线补齐后，才能用于 `locked` 或 `offline` 策略。
+
+清单声明 `dependencies.frontend` 时，锁模板记录当前宿主的 `frontendFramework`，只锁定该框架分类的前端依赖。请为各框架分别保存锁文件，例如切换到 Vue2、Vue3 后，使用 `--output-path plugins/ai/plugin.vue2.lock.yaml`、`--output-path plugins/ai/plugin.vue3.lock.yaml` 保存，再在 `install-deps` 中通过 `--lockfile` 传入对应文件；锁文件框架与宿主不一致时会被阻断。
+
+包含旧框架字段 `frontendVersion` 的锁文件会被明确拒绝，不做静默迁移，应按目标框架重新生成并审核。既没有 `frontendFramework` 也没有旧框架字段的旧锁文件，保持原有依赖项校验方式；这不代表插件清单仍接受旧顶层 npm 字段。清单中的 `compatibility.frontendVersion` 仍是前端工程的语义版本约束，保留原名，与框架标识 `frontendFramework` 不同。
+
+`install-deps` 是真实 Python/npm 依赖安装的唯一显式入口。文本 TTY 下可省略 `--yes`，CLI 会先输出依赖安装计划和策略判定，再询问是否执行；非 TTY、JSON 输出或 CI 场景应传 `--yes`，否则会由策略返回确认阻断。
+
+插件诊断包可输出完整 JSON 或保存到文件：
+
+```bash
+ruoyi plugin diagnose demo --env=dev --output=json
+ruoyi plugin diagnose demo --env=dev --output-file=demo-diagnose.json
+```
+
+包中的 `runtime` 汇集发布目标、各 worker 实际加载版本、连接与任务、激活健康历史及配置修订摘要。此命令不启动插件或重新执行健康检查；顶层 `ok` 保持静态诊断含义，运行态结果需单独判断。CLI 从 Redis 读取宿主快照，并保留缺失、过期或不可用状态，不能据此认定服务器没有连接或全部健康。快照范围、时效、脱敏和计数说明见[统一运行诊断](plugin_development.md#122-统一运行诊断)。管理端同一内容位于“诊断包 → 原始数据”。
+
+完成制品目标选择、通过进程管理器启动全部 worker 后，可用固定目标等待命令作为发布流水线门禁：
+
+```bash
+ruoyi plugin release wait demo DIGEST --generation SELECTED_GENERATION --expected-workers 2 --timeout 300 --interval 2 --env prod --output json
+ruoyi plugin release wait demo DIGEST --generation SELECTED_GENERATION --expected-workers 2 --timeout 0 --env prod --output json
+```
+
+插件 ID、`DIGEST`、`--generation` 和 `--expected-workers` 均必填。`DIGEST` 是 64 位小写 SHA256；`SELECTED_GENERATION` 使用最近一次 `select`、`enable` 或 `rollback` 返回的 32 位新代际，不能复用该变更输入的 `--expected-generation`。worker 数量必须与发布记录一致，并填写实际部署要求的数量。命令只读，不需要维护确认，也不会启动进程或切换目标。
+
+`--timeout` 默认为 300 秒，`--interval` 默认为 2 秒；前者必须为有限非负数，后者必须为有限正数。`--timeout 0` 只查询并断言一次，未就绪立即返回 `not_converged`。非零超时约束核心轮询，配置加载和模块导入发生在此前；单次状态查询最多 10 秒，并受剩余轮询预算约束，取消采用异步协作方式。
+
+JSON 只输出一个最终对象，包含固定 `target`、脱敏的 `lastObserved`、查询次数、耗时及 `reason`；没有逐轮进度输出。只有 `converged` 返回 `0`；超时、目标变化、停用、worker 故障或观测不可用返回 `50`，CLI 取消返回 `cancelled` 和 `50`。CLI 参数校验失败返回 `invalid_arguments` 和 `2`；缺少必填参数或未知选项由命令行解析器直接以 `2` 拒绝。`lastObserved` 是最后一次可用观测，超时或查询失败时可能来自此前且已过期的轮次，不能仅依据其中的 `active` 判定成功。自动决策应以最终退出码和 `ok/reason` 为准；`release status` 的 `ok` 仍只表示查询成功，不能代替该门禁。完整判定与原因表见[制品发布与验收](plugin_development.md#153-停机维护准备证据与目标选择)。
+
+独立 v2 bundle 工程可离线检查、更新复制到 `web/vendor` 的桥接 SDK：
+
+```bash
+ruoyi plugin sdk check plugin-projects/report_center --output=json
+ruoyi plugin sdk update plugin-projects/report_center --dry-run --output=json
+ruoyi plugin sdk update plugin-projects/report_center
+```
+
+这些命令不接受 `--env`，也不读取宿主数据库配置或执行插件代码。SDK 命令的 `--frontend-framework` 当前固定可选 `auto`、`vue2`、`vue3`、`react`，默认值为 `auto`。来源默认是 `ruoyi-fastapi-frontend/vue3/web`；可用 `--frontend-framework=vue2` 选择 Vue2 Web，或用 `--frontend-framework=react` 选择 React Web，也可用 `--frontend-root PATH` 或 `RUOYI_PLUGIN_FRONTEND_ROOT` 指定工程。`auto` 跟随框架环境变量和显式根目录选择，所选 `ruoyi-fastapi-frontend/<framework>/web` 工程必须已提供对应 bridge SDK 文件。`check` 仅在版本、来源记录及文件摘要与选定宿主一致（`current`）时返回 0；过期副本、本地修改或缺少记录返回非零，适合纳入构建检查。`protocolCompatible` 只比较桥协议，不表示业务功能已经验收。
+
+`update` 是显式写入命令，先备份再替换三个 SDK 文件。默认拒绝覆盖本地 SDK 修改或旧工程的未跟踪副本；需要纳管时先审阅 `update --force --dry-run`，再执行 `update --force`。备份位于工程 `.plugin-sdk-backups/`，业务代码保持原样。更新后应重建 bundle 并执行兼容测试；不会下载依赖、签名发布或改变运行中的插件。完整状态与摘要规则见开发手册第 16.1 节。
+
+### 4.7 Shell Completion 初始化
+
+```bash
+ruoyi completion doctor --output=json
+ruoyi completion show bash
+ruoyi completion install --activate
+ruoyi completion install --shell=bash --activate
+```
+
+### 4.8 交互式向导与 TUI
+
+```bash
+ruoyi wizard app-run
+ruoyi wizard db-upgrade
+ruoyi wizard cache-clear
+ruoyi wizard gen-export
+ruoyi wizard gen-import
+ruoyi wizard prod-check
+ruoyi tui --env=dev
+```
+
+## 5. 命令速查
+
+### 5.1 `app`
+
+用于启动当前 FastAPI 应用、启动前检查、配置快照和路由巡检。
+
+```bash
+ruoyi app run --env=dev
+ruoyi app doctor --env=dev --output=json
+ruoyi app env --env=dev
+ruoyi app config --env=dev --output=json
+ruoyi app routes --env=dev
+ruoyi app routes --env=dev --method=GET --path-prefix=/system
+ruoyi app routes --env=dev --group-by=tag
+ruoyi app routes --env=dev --include-hidden --output=json
+```
+
+### 5.2 `db`
+
+用于数据库连接检查和 Alembic 迁移封装。
+
+```bash
+ruoyi db check --env=dev
+ruoyi db current --env=dev --output=json
+ruoyi db heads --env=dev --output=json
+ruoyi db history --env=dev --limit=10
+ruoyi db upgrade --env=dev
+ruoyi db upgrade --env=dev --revision=head --dry-run
+ruoyi db init --env=dev
+ruoyi db downgrade --env=dev --revision=-1
+ruoyi db downgrade --env=dev --revision=-1 --dry-run
+ruoyi db revision --env=dev --message="add user index" --yes
+ruoyi db revision --env=dev --message="sync table structure" --autogenerate --yes
+```
+
+### 5.3 `ops`
+
+用于基础运维检查。
+
+```bash
+ruoyi ops deps --env=dev
+ruoyi ops ping-db --env=dev
+ruoyi ops ping-redis --env=dev
+ruoyi ops health --env=dev
+ruoyi ops health --env=dev --output=json
+ruoyi ops server-info --env=dev
+ruoyi ops server-info --env=dev --output=json
+```
+
+说明：
+
+- `server-info --output=text` 适合人工巡检
+- `server-info --output=json` 更适合脚本消费
+
+### 5.4 `cache`
+
+用于缓存统计、查询、清理和预热。
+
+```bash
+ruoyi cache stats --env=dev
+ruoyi cache stats --env=dev --output=json
+ruoyi cache keys login_tokens --env=dev --output=json
+ruoyi cache get sys_config site.name --env=dev --output=json
+ruoyi cache ttl sys_config site.name --env=dev --output=json
+ruoyi cache clear --env=dev --cache-name=sys_config --yes
+ruoyi cache clear --env=dev --cache-key=site.name --yes
+ruoyi cache clear --env=dev --all --yes
+ruoyi cache warmup --env=dev --yes
+```
+
+### 5.5 `job`
+
+用于定时任务查询、执行和同步。
+
+```bash
+ruoyi job list --env=dev --output=json
+ruoyi job list --env=dev --job-name=同步任务 --status=0 --paged
+ruoyi job detail 1 --env=dev --output=json
+ruoyi job logs --env=dev --output=json
+ruoyi job logs --env=dev --job-name=同步任务 --status=1 --paged
+ruoyi job run-once 1 --env=dev --yes
+ruoyi job pause 1 --env=dev --yes
+ruoyi job resume 1 --env=dev --yes
+ruoyi job sync --env=dev --yes
+ruoyi job run-once 1 --env=prod --allow-prod --yes
+```
+
+### 5.6 `config`
+
+用于系统参数配置读取、写入和缓存同步。
+
+```bash
+ruoyi config list --env=dev --output=json
+ruoyi config list --env=dev --paged
+ruoyi config get <config-key> --env=dev --output=json
+ruoyi config get <config-key> --env=dev --source=both --output=json
+ruoyi config get <config-key> --env=dev --source=db --output=json
+ruoyi config get <config-key> --env=dev --source=cache
+ruoyi config doctor --env=dev --output=json
+ruoyi config set sys.user.initPassword --env=dev --value=123456 --name="初始密码" --yes
+ruoyi config set sys.user.initPassword --env=dev --value=123456 --remark="CLI update" --yes
+ruoyi config sync-cache --env=dev --yes
+```
+
+说明：
+
+- `config get --source=both` 会同时读取数据库和 Redis，并在 JSON 中返回 `database`、`cache` 与 `inSync`
+- `config get --source=db` 只读取参数配置表，适合确认数据库中的真实存量值
+- `config get --source=cache` 只读取 Redis 缓存，适合确认当前运行时命中的值
+- 如果某个键只在缓存里存在、不在数据库里存在，`--source=db` 会返回“参数配置不存在”，这代表数据库侧没有对应记录，不表示缓存读取异常
+
+### 5.7 `crypto`
+
+用于传输加密配置校验、公钥导出和密钥辅助操作。
+
+```bash
+ruoyi crypto validate --env=dev --output=json
+ruoyi crypto keygen --env=dev --kid=default --key-size=2048
+ruoyi crypto keygen --env=dev --output=json --kid=default --key-size=2048
+ruoyi crypto export-public --env=dev
+ruoyi crypto export-public --env=dev --output=json
+ruoyi crypto rotate --env=dev --output=json --next-kid=v2 --key-size=2048 --yes
+```
+
+说明：
+
+- `crypto keygen` 会输出新生成的公钥、私钥和建议写入的 `envPatch`
+- `crypto rotate` 当前只生成轮换辅助结果，不会直接改写 `.env.*` 文件
+- 涉及私钥的输出只建议在安全终端中使用
+
+### 5.8 `gen`
+
+用于代码生成业务表查询、导入、建表、预览和导出。
+
+```bash
+ruoyi gen list --env=dev --output=json
+ruoyi gen db-list --env=dev --output=json
+ruoyi gen detail 1 --env=dev --output=json
+ruoyi gen import-table sys_user sys_role --env=dev --yes
+ruoyi gen import-table sys_user sys_role --env=dev --dry-run
+ruoyi gen create-table --env=dev --sql="create table demo_test (id bigint primary key)" --yes
+ruoyi gen create-table --env=dev --sql-file=./sql/demo.sql --dry-run
+ruoyi gen preview 1 --env=dev
+ruoyi gen preview 1 --env=dev --output=json
+ruoyi gen export sys_user --env=dev --yes
+ruoyi gen export sys_user sys_role --env=dev --mode=zip --output-file=./build/gen.zip --yes
+ruoyi gen export sys_user --env=dev --mode=local --dry-run
+ruoyi gen sync-db sys_user --env=dev --yes
+```
+
+说明：
+
+- `import-table` 与 `create-table` 支持 `--dry-run`
+- `create-table` 必须且只能传入 `--sql` 或 `--sql-file` 其中一种
+- `gen preview --output=text` 会按模板分块展示预览代码内容
+- `export --mode=local` 会复用现有生成逻辑，并遵守 `GenConfig.allow_overwrite`
+
+### 5.9 `dev`
+
+用于开发态代码检查与测试执行。
+
+```bash
+ruoyi dev lint
+ruoyi dev lint cli tests --check-only
+ruoyi dev lint cli --fix
+ruoyi dev lint cli --output=json
+ruoyi dev test
+ruoyi dev test tests/test_log_sanitize_util.py
+ruoyi dev test tests --keyword sanitize --maxfail=1 -q
+ruoyi dev test tests --output=json
+```
+
+说明：
+
+- `dev lint` 默认顺序是先执行 `ruff format`，再执行 `ruff check`
+- `--check-only` 会改成只检查，不写回
+- `--fix` 会执行 `ruff check --fix`
+- `dev test` 通过当前环境的 `python -m pytest` 执行测试
+
+### 5.10 `completion`
+
+用于生成、安装和诊断 shell completion。
+
+```bash
+ruoyi completion doctor --output=json
+ruoyi completion show bash
+ruoyi completion show zsh
+ruoyi completion show fish
+ruoyi completion show powershell
+ruoyi completion install --activate
+ruoyi completion install --shell=bash
+ruoyi completion install --shell=zsh --activate
+ruoyi completion install --shell=fish
+ruoyi completion install --shell=powershell --activate
+```
+
+说明：
+
+- 当前版本已支持 `bash`、`zsh`、`fish`、`powershell`
+- `install` 在未传 `--shell` 时会优先自动识别当前 shell
+- `install` 默认写入 shell 对应的默认脚本位置
+- Bash 和 Zsh 如需自动加载，建议配合 `--activate`
+- PowerShell 如需自动加载，建议配合 `--activate`
+- Bash 脚本已对旧版本 Bash 做兼容处理，若之前已安装过脚本，请重新执行一次 `ruoyi completion install --activate`
+- `completion doctor` 会给出推荐安装命令和 source 建议
+- 当前已补充的上下文补全包括 `--env`、`cache_name`、`cache_key`、`config_key`、`db --revision`、`gen` 业务表名、`gen` 数据库表名、`gen --sql-file`、`gen --output-file`、`job_name`、`job_id`
+
+### 5.11 `wizard`
+
+用于通过交互方式组装危险命令或复杂命令，并在真正执行前输出预览。
+
+```bash
+ruoyi wizard app-run
+ruoyi wizard db-upgrade --default-env=dev --default-revision=head
+ruoyi wizard cache-clear --default-env=dev --default-mode=cache-name
+ruoyi wizard gen-export --default-env=dev --default-mode=zip
+ruoyi wizard gen-import --default-env=dev --default-table-names=sys_notice
+ruoyi wizard prod-check --default-env=prod
+```
+
+说明：
+
+- 所有向导都会先采集输入，再输出预览摘要与最终将执行的 CLI 命令
+- `db-upgrade`、`cache-clear`、`gen-export`、`gen-import` 默认都支持先走 `dry-run`
+- 向导本质上仍然是对底层 CLI 的封装，最终返回值、退出码和危险命令保护规则与底层命令保持一致
+
+### 5.12 `tui`
+
+用于进入只读巡检工作台，以页面方式浏览应用、运维、数据库、缓存、任务、代码生成、参数配置和加密状态。
+
+```bash
+ruoyi tui --env=dev
+ruoyi tui --env=prod
+```
+
+说明：
+
+- 当前 TUI 是只读巡检工作台，页面内的写操作入口会通过确认弹窗或向导二次确认
+- 页面切换快捷键为 `D/A/O/B/C/T/G/P/E`，分别对应总览、应用、运维、数据库、缓存、任务、代码生成、参数配置、加密
+- 通用快捷键包括 `R` 刷新、`Q` 退出、`S` 聚焦侧栏、`←/→` 切换焦点或区域、`J/K` 滚动、`PgUp/PgDn` 翻页、`Home/End` 首尾跳转
+- 若当前 Python 环境缺少 TUI 依赖，`ruoyi tui` 会返回失败结果并提示重新执行 `python -m pip install -r requirements.txt` 或 `python -m pip install -r requirements-pg.txt`
+
+## 6. 危险命令清单
+
+当前已接入保护的命令包括：
+
+- `cache clear`
+- `cache warmup`
+- `db upgrade`
+- `db init`
+- `db downgrade`
+- `db revision`
+- `config set`
+- `config sync-cache`
+- `crypto rotate`
+- `job run-once`
+- `job pause`
+- `job resume`
+- `job sync`
+- `gen import-table`
+- `gen create-table`
+- `gen export`
+- `gen sync-db`
+
+说明：
+
+- 在 `prod` 环境下，这些命令默认拒绝执行
+- 在非 `prod` 环境下，这些命令默认也会进入交互确认
+- 在非交互终端中，如果未传入 `--yes`，命令会直接拒绝执行
+- 如果命令支持 `--dry-run`，优先先跑一次预演
+
+## 7. 输出与退出码
+
+### 7.1 输出格式
+
+CLI 支持两种输出格式：
+
+- `text`
+- `json`
+
+字段命名约定：
+
+- `text` 输出优先面向人工阅读，字段名统一使用 `snake_case`
+- `json` 输出优先面向脚本消费，字段名保持命令契约定义，不因视觉优化变化
+
+示例：
+
+```bash
+ruoyi ops health --env=dev --output=json
+```
+
+标准样例：
+
+文本输出样例：
+
+命令：
+
+```bash
+ruoyi --color=never --icon=none app config --env=dev
+```
+
+输出：
+
+```text
+OK SUCCESS
+env: dev
+application:
+  name: RuoYi-FastAPI
+  host: 0.0.0.0:9099
+  root_path: /dev-api
+  reload: true
+  workers: 1
+  disable_swagger: false
+  disable_redoc: false
+database:
+  type: mysql
+  host: 127.0.0.1:3306
+  name: ruoyi-fastapi
+redis:
+  host: 127.0.0.1:6379
+logging:
+  level: INFO
+transport_crypto:
+  enabled: false
+  mode: off
+```
+
+JSON 输出样例：
+
+命令：
+
+```bash
+ruoyi app config --env=dev --output=json
+```
+
+输出：
+
+```json
+{
+  "ok": true,
+  "env": "dev",
+  "config": {
+    "env": "dev",
+    "name": "RuoYi-FastAPI",
+    "host": "0.0.0.0",
+    "port": 9099,
+    "rootPath": "/dev-api",
+    "reload": true,
+    "workers": 1,
+    "disableSwagger": false,
+    "disableRedoc": false,
+    "dbType": "mysql",
+    "dbHost": "127.0.0.1",
+    "dbPort": 3306,
+    "dbDatabase": "ruoyi-fastapi",
+    "redisHost": "127.0.0.1",
+    "redisPort": 6379,
+    "logLevel": "INFO",
+    "transportCryptoEnabled": false,
+    "transportCryptoMode": "off"
+  }
+}
+```
+
+危险命令拒绝样例：
+
+命令：
+
+```bash
+ruoyi db revision --env=prod --message="doc-sample" --output=json
+```
+
+输出：
+
+```json
+{
+  "ok": false,
+  "message": "生产环境默认禁止直接执行危险命令：db revision",
+  "hint": "如确认执行，请传入 --allow-prod；如需跳过确认，请同时传入 --yes"
+}
+```
+
+`dry-run` 输出样例：
+
+命令：
+
+```bash
+ruoyi db upgrade --env=dev --revision=head --dry-run --yes --output=json
+```
+
+输出：
+
+```json
+{
+  "ok": true,
+  "message": "数据库已升级到 head（dry-run）",
+  "dryRun": true,
+  "command": [
+    "alembic",
+    "-c",
+    "/path/to/ruoyi-fastapi-backend/alembic.ini",
+    "upgrade",
+    "head"
+  ],
+  "cwd": "/path/to/ruoyi-fastapi-backend"
+}
+```
+
+代码生成 `dry-run` 文本样例：
+
+命令：
+
+```bash
+ruoyi --color=never --icon=none gen export demo_table --env=dev --dry-run --yes --output=text
+```
+
+输出：
+
+```text
+OK SUCCESS
+env: dev
+mode: zip
+dry_run: true
+message: 代码导出演练完成，未执行实际导出
+table_names:
+  - demo_table
+output_file: /path/to/ruoyi-fastapi-backend/gen_code_demo_table.zip
+```
+
+代码生成 `dry-run` JSON 样例：
+
+命令：
+
+```bash
+ruoyi gen create-table --env=dev --dry-run --yes --sql='CREATE TABLE demo_cli_test (id bigint);' --output=json
+```
+
+输出：
+
+```json
+{
+  "ok": true,
+  "message": "建表语句演练完成，未执行实际建表",
+  "dryRun": true,
+  "statementCount": 1,
+  "tableNames": [
+    "demo_cli_test"
+  ],
+  "sql": "CREATE TABLE demo_cli_test (id bigint);",
+  "env": "dev"
+}
+```
+
+参数错误样例：
+
+命令：
+
+```bash
+ruoyi --color=never --icon=none gen create-table --env=dev --dry-run --yes --sql='DROP TABLE demo_cli_test;' --output=text
+```
+
+输出：
+
+```text
+FAIL FAILED
+message: 创建表结构失败
+error: 建表语句不合法，仅允许 CREATE TABLE 语句
+env: dev
+```
+
+参数错误 JSON 样例：
+
+命令：
+
+```bash
+ruoyi gen create-table --env=dev --dry-run --yes --sql='DROP TABLE demo_cli_test;' --output=json
+```
+
+输出：
+
+```json
+{
+  "ok": false,
+  "message": "创建表结构失败",
+  "error": "建表语句不合法，仅允许 CREATE TABLE 语句",
+  "env": "dev"
+}
+```
+
+依赖检查失败样例：
+
+说明：
+
+- `app doctor` 和 `ops health` 的返回结果会受到当前数据库、Redis 连通性影响
+- 如果依赖不可用，命令会输出失败结果，并返回退出码 `10`
+
+命令：
+
+```bash
+ruoyi --color=never --icon=none app doctor --env=dev --output=text
+```
+
+输出：
+
+```text
+FAIL FAILED
+env: dev
+checks:
+  database: false | 数据库连接失败 | error: <database error message>
+  redis: false | Redis连接失败 | error: <redis error message>
+  crypto: true | 传输加密配置校验通过
+```
+
+命令：
+
+```bash
+ruoyi ops health --env=dev --output=json
+```
+
+输出：
+
+```json
+{
+  "env": "dev",
+  "database": {
+    "ok": false,
+    "message": "数据库连接失败",
+    "error": "<database error message>",
+    "exit_code": 20
+  },
+  "redis": {
+    "ok": false,
+    "message": "Redis连接失败",
+    "error": "<redis error message>",
+    "exit_code": 21
+  },
+  "ok": false
+}
+```
+
+### 7.2 退出码
+
+当前统一退出码如下：
+
+- `0`：成功
+- `2`：参数错误
+- `10`：依赖检查失败
+- `20`：数据库失败
+- `21`：Redis 失败
+- `22`：调度器失败
+- `30`：危险操作被拒绝
+- `50`：未分类运行错误
+
+## 8. 常见问题
+
+### 8.1 `ruoyi` 命令不可用
+
+请依次确认：
+
+- 当前目录是否为 `ruoyi-fastapi-backend`
+- 当前 Python 环境是否执行过 `python -m pip install -r requirements.txt` 或 `python -m pip install -r requirements-pg.txt`
+- 当前终端是否真的使用了安装依赖的那个 Python 环境
+
+### 8.2 命令报数据库或 Redis 连接失败
+
+请检查：
+
+- `.env.*` 中数据库配置是否正确
+- `.env.*` 中 Redis 配置是否正确
+- 当前网络、容器或主机是否允许连接目标服务
+- `app doctor` 与 `ops health` 在依赖异常时返回退出码 `10`
+- 单项依赖失败会在 JSON 中带出原始 `error` 和对应依赖退出码
+
+### 8.3 文本输出太花或不适合脚本处理
+
+可以直接切换输出与视觉参数：
+
+```bash
+ruoyi --color=never --icon=none ops health --env=dev --output=text
+ruoyi ops health --env=dev --output=json
+```
+
+### 8.4 使用文档与实现不一致
+
+应以当前 CLI 实现和命令帮助输出为准，并同步更新本文档。

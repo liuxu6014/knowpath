@@ -1,0 +1,28 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+
+def add_cors_middleware(app: FastAPI) -> None:
+    """
+    添加跨域中间件
+
+    :param app: FastAPI对象
+    """
+    expose_headers = [
+        'x-body-encrypted',
+        'x-key-id',
+        'x-encrypt-alg',
+        'download-filename',
+        'content-disposition',
+        'accept-ranges',
+        'content-range',
+        'content-length',
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=['*'],
+        allow_credentials=True,
+        allow_methods=['*'],
+        allow_headers=['*'],
+        expose_headers=expose_headers,
+    )
